@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Text.Json;
 using Clio.Command.BusinessRules;
 using FluentAssertions;
@@ -81,7 +82,7 @@ public sealed class BusinessRuleHelpersTests {
 			numericValue.Should().Be(expectedInt64,
 				because: "integral numeric constants should stay integral after conversion");
 		} else {
-			numericValue.Should().Be(decimal.Parse((string)expectedValue),
+			numericValue.Should().Be(decimal.Parse((string)expectedValue, CultureInfo.InvariantCulture),
 				because: "fractional numeric constants should be represented as Decimal values");
 		}
 	}
