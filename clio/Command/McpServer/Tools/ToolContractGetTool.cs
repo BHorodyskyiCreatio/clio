@@ -241,7 +241,9 @@ internal static class ToolContractCatalog {
 	private const string InstalledApplicationIdentifierDescription = "Installed application identifier.";
 	private const string InstalledApplicationVersionDescription = "Installed application version.";
 	private const string InvalidWorkflowShapeCode = "invalid-workflow-shape";
+	private const string MissingRequiredParameterCode = "missing-required-parameter";
 	private const string PackageUIdFieldName = "package-u-id";
+	private const string PackageNameDescription = "Target package name.";
 	private const string PrimaryPackageIdentifierDescription = "Primary package identifier.";
 	private const string PrimaryPackageNameDescription = "Primary package name.";
 	private const string RuleFieldName = "rule";
@@ -251,13 +253,18 @@ internal static class ToolContractCatalog {
 	private const string EnvironmentNameCamelFieldName = "environmentName";
 	private const string PackageNameCamelFieldName = "packageName";
 	private const string EntitySchemaNameCamelFieldName = "entitySchemaName";
+	private const string ExampleWorkspacePath = "<workspace>/UsrTaskApp";
+	private const string ValuesFieldName = "values";
+	private const string BindingNameDescription = "Binding name.";
+	private const string WorkspacePathDescription = "Absolute local workspace path. Network-share paths are not supported.";
+	private const string WorkspacePathFieldName = "workspace-path";
 
-	private static readonly ToolErrorContract CommonErrorContract = new([
-		new ToolErrorCodeContract("tool-not-found", "Requested tool name is not registered by clio MCP."),
-		new ToolErrorCodeContract("missing-required-parameter", "A required parameter is missing."),
-		new ToolErrorCodeContract("invalid-parameter-alias", "A legacy or unsupported parameter alias was used."),
-		new ToolErrorCodeContract("invalid-parameter-type", "A parameter value type does not match the tool contract."),
-		new ToolErrorCodeContract(InvalidLocalizationMapCode, "A localization map is malformed or missing en-US."),
+		private static readonly ToolErrorContract CommonErrorContract = new([
+			new ToolErrorCodeContract("tool-not-found", "Requested tool name is not registered by clio MCP."),
+			new ToolErrorCodeContract(MissingRequiredParameterCode, "A required parameter is missing."),
+			new ToolErrorCodeContract("invalid-parameter-alias", "A legacy or unsupported parameter alias was used."),
+			new ToolErrorCodeContract("invalid-parameter-type", "A parameter value type does not match the tool contract."),
+			new ToolErrorCodeContract(InvalidLocalizationMapCode, "A localization map is malformed or missing en-US."),
 		new ToolErrorCodeContract(InvalidWorkflowShapeCode, "The request shape is structurally invalid for the target tool.")
 	]);
 
@@ -289,6 +296,9 @@ internal static class ToolContractCatalog {
 			[CreateLookupTool.CreateLookupToolName] = BuildCreateLookup(),
 			[CreateEntitySchemaTool.CreateEntitySchemaToolName] = BuildCreateEntity(),
 			[UpdateEntitySchemaTool.UpdateEntitySchemaToolName] = BuildUpdateEntity(),
+			[CreateDataBindingTool.CreateDataBindingToolName] = BuildCreateDataBinding(),
+			[AddDataBindingRowTool.AddDataBindingRowToolName] = BuildAddDataBindingRow(),
+			[RemoveDataBindingRowTool.RemoveDataBindingRowToolName] = BuildRemoveDataBindingRow(),
 			[CreateDataBindingDbTool.CreateDataBindingDbToolName] = BuildCreateDataBindingDb(),
 			[UpsertDataBindingRowDbTool.UpsertDataBindingRowDbToolName] = BuildUpsertDataBindingRowDb(),
 			[RemoveDataBindingRowDbTool.RemoveDataBindingRowDbToolName] = BuildRemoveDataBindingRowDb(),
@@ -352,10 +362,10 @@ internal static class ToolContractCatalog {
 				return new ToolContractGetResponse(
 					false,
 					Error: new ToolContractError(
-						"missing-required-parameter",
+						MissingRequiredParameterCode,
 						"tool-names must contain non-empty tool names.",
 						FieldErrors: [
-							new ToolContractFieldError($"tool-names[{index}]", "missing-required-parameter",
+							new ToolContractFieldError($"tool-names[{index}]", MissingRequiredParameterCode,
 								"Provide a non-empty tool name.")
 						]));
 			}
@@ -493,7 +503,7 @@ internal static class ToolContractCatalog {
 			new ToolInputSchemaContract(
 				["name"],
 				[
-					Field("name", StringType, "Stable guidance name. Known values include app-modeling, existing-app-maintenance, dataforge-orchestration, page-schema-handlers, page-schema-sdk-common, and page-schema-validators.")
+					Field("name", StringType, "Stable guidance name. Known values include app-modeling, data-bindings, existing-app-maintenance, dataforge-orchestration, page-schema-handlers, page-schema-sdk-common, and page-schema-validators.")
 				]),
 			EnvelopeOutput(
 				SuccessFieldName,
@@ -1802,14 +1812,14 @@ internal static class ToolContractCatalog {
 	private static ToolContractDefinition BuildCreateDataBindingDb() {
 		return new ToolContractDefinition(
 			CreateDataBindingDbTool.CreateDataBindingDbToolName,
-			"Creates or updates a DB-first package data binding and optionally applies rows immediately as an explicit fallback or standalone path outside a batched sync-schemas flow, including standalone lookup seeding when direct SQL is not the right MCP path.",
+			"Creates or updates a DB-first package data binding and optionally applies rows immediately as an explicit fallback or standalone path outside a batched sync-schemas flow. SaveSchema metadata is projected from the primary key plus columns referenced by currently bound or requested rows, so unrelated runtime-only columns are not blockers, while explicitly requested unsupported runtime columns still fail. For workflow selection, call get-guidance with name `data-bindings`.",
 			new ToolInputSchemaContract(
 				[EnvironmentNameFieldName, PackageNameFieldName, SchemaNameFieldName],
 				EnvironmentPackageSchemaFields(
 					"Entity schema name for the binding.",
 					Field(BindingNameFieldName, StringType, "Optional binding name; defaults to the schema name."),
 					Field("rows", StringType,
-						"Optional JSON array of row objects. Each row must contain a values object keyed by column name."))),
+						"Optional JSON array of row objects. Each row must contain a values object keyed by column name. Binding metadata is projected from the primary key plus referenced row columns."))),
 			CommandExecutionOutput(),
 			CommonErrorContract,
 			EnvironmentPackageSchemaAliases(),
@@ -1826,7 +1836,7 @@ internal static class ToolContractCatalog {
 			[],
 			[
 				new ToolDeprecation(
-					"Prefer sync-schemas with inline seed-rows as the canonical batched path. Keep create-data-binding-db for explicit fallback or standalone binding work, and prefer it over direct SQL when MCP callers still need lookup seed rows.",
+					"Prefer sync-schemas with inline seed-rows as the canonical batched path. Keep create-data-binding-db for explicit fallback or standalone binding work, and prefer it over direct SQL when MCP callers still need lookup seed rows. For broader behavior-level guidance, call get-guidance with name `data-bindings`.",
 					[
 						SchemaSyncTool.ToolName
 					])
@@ -1837,12 +1847,14 @@ internal static class ToolContractCatalog {
 		return new ToolContractDefinition(
 			UpsertDataBindingRowDbTool.UpsertDataBindingRowDbToolName,
 			"Upserts a single row in an existing DB-first binding. " +
-			"The binding must already exist; call create-data-binding-db first if it does not.",
+			"The binding must already exist; call create-data-binding-db first if it does not. " +
+			"SaveSchema metadata is rebuilt from the primary key plus columns present in the bound rows and the requested upsert payload. " +
+			"For workflow selection and verification discipline, call get-guidance with name `data-bindings`.",
 			new ToolInputSchemaContract(
-				[EnvironmentNameFieldName, PackageNameFieldName, BindingNameFieldName, "values"],
-				EnvironmentPackageFields(
-					Field(BindingNameFieldName, StringType, "Binding name."),
-					Field("values", StringType, "JSON object keyed by column name."))),
+					[EnvironmentNameFieldName, PackageNameFieldName, BindingNameFieldName, ValuesFieldName],
+					EnvironmentPackageFields(
+						Field(BindingNameFieldName, StringType, BindingNameDescription),
+						Field(ValuesFieldName, StringType, "JSON object keyed by column name. Referenced columns become part of the projected binding metadata."))),
 			CommandExecutionOutput(),
 			new ToolErrorContract([
 				..CommonErrorContract.Codes,
@@ -1858,7 +1870,7 @@ internal static class ToolContractCatalog {
 					[EnvironmentNameFieldName] = ExampleEnvironmentName,
 					[PackageNameFieldName] = ExamplePackageName,
 					[BindingNameFieldName] = ExampleTaskStatusSchemaName,
-					["values"] = "{\"Name\":\"New\"}"
+						[ValuesFieldName] = "{\"Name\":\"New\"}"
 				})
 			],
 			Flow(["create-data-binding-db", UpsertDataBindingRowDbTool.UpsertDataBindingRowDbToolName],
@@ -1870,12 +1882,12 @@ internal static class ToolContractCatalog {
 	private static ToolContractDefinition BuildRemoveDataBindingRowDb() {
 		return new ToolContractDefinition(
 			RemoveDataBindingRowDbTool.RemoveDataBindingRowDbToolName,
-			"Removes a single row from an existing DB-first binding by key value, and deletes the package schema data record when the removed row was the last bound row.",
+			"Removes a single row from an existing DB-first binding by key value, and deletes the package schema data record when the removed row was the last bound row. When rows remain, SaveSchema metadata is rebuilt from the primary key plus the columns present in the remaining bound rows. For workflow selection and verification discipline, call get-guidance with name `data-bindings`.",
 			new ToolInputSchemaContract(
 				[EnvironmentNameFieldName, PackageNameFieldName, BindingNameFieldName, KeyValueFieldName],
 				EnvironmentPackageFields(
-					Field(BindingNameFieldName, StringType, "Binding name."),
-					Field(KeyValueFieldName, StringType, "Primary-key value of the row to remove."))),
+						Field(BindingNameFieldName, StringType, BindingNameDescription),
+						Field(KeyValueFieldName, StringType, "Primary-key value of the row to remove."))),
 			CommandExecutionOutput(),
 			CommonErrorContract,
 			[
@@ -1893,6 +1905,154 @@ internal static class ToolContractCatalog {
 				})
 			],
 			Flow([RemoveDataBindingRowDbTool.RemoveDataBindingRowDbToolName], "Standalone DB-first binding maintenance."),
+			[],
+			[]);
+	}
+
+	private static ToolContractDefinition BuildCreateDataBinding() {
+		return new ToolContractDefinition(
+			CreateDataBindingTool.CreateDataBindingToolName,
+			"Creates or regenerates a local package data binding from a built-in template or a runtime entity schema. For workflow selection, call get-guidance with name `data-bindings`.",
+			new ToolInputSchemaContract(
+				[PackageNameFieldName, SchemaNameFieldName, WorkspacePathFieldName],
+				[
+					Field(EnvironmentNameFieldName, StringType, "Registered clio environment name. Required when schema-name is not SysSettings because the MCP tool does not expose a uri fallback."),
+						Field(PackageNameFieldName, StringType, PackageNameDescription),
+						Field(SchemaNameFieldName, StringType, "Entity schema name for the binding. The built-in offline template currently includes SysSettings."),
+						Field(WorkspacePathFieldName, StringType, WorkspacePathDescription),
+						Field(BindingNameFieldName, StringType, "Optional binding name; defaults to the schema name."),
+						Field("install-type", NumberType, "Optional descriptor install type; defaults to 0."),
+						Field(ValuesFieldName, StringType, "Optional JSON object keyed by column name for the initial row."),
+						Field("localizations", StringType, "Optional JSON object keyed by culture then column name.")
+					],
+					Validators: [
+						new ToolContractValidator(
+							"require-environment-name-for-runtime-schema",
+							MissingRequiredParameterCode,
+						Fields: [
+							SchemaNameFieldName,
+							EnvironmentNameFieldName
+						],
+						Context: "`environment-name` is required when `schema-name` is not `SysSettings` because this MCP tool only supports offline generation for built-in templates and does not expose `--uri`.",
+						Required: true)
+				]),
+			CommandExecutionOutput(),
+			CommonErrorContract,
+			[
+				EnvironmentNameParameterAlias(),
+				PackageNameParameterAlias(),
+				SchemaNameParameterAlias(),
+				BindingNameParameterAlias(),
+				WorkspacePathParameterAlias(),
+				Alias(ParameterScope, "install-type", "installType", RejectedStatus, "Use 'install-type' instead of 'installType'.")
+			],
+			[
+				Default("install-type", "0", "Use descriptor install type 0 unless the workflow requires a different value.")
+			],
+			[
+				Example("Create a local SysSettings binding artifact", new Dictionary<string, object?> {
+					[PackageNameFieldName] = ExamplePackageName,
+					[SchemaNameFieldName] = "SysSettings",
+						[WorkspacePathFieldName] = ExampleWorkspacePath,
+						[ValuesFieldName] = "{\"Code\":\"UsrTaskSetting\",\"Name\":\"Task setting\"}"
+					}),
+					Example("Create a local binding for a non-templated schema", new Dictionary<string, object?> {
+						[EnvironmentNameFieldName] = ExampleEnvironmentName,
+						[PackageNameFieldName] = ExamplePackageName,
+						[SchemaNameFieldName] = ExampleTaskStatusSchemaName,
+						[WorkspacePathFieldName] = ExampleWorkspacePath
+					})
+				],
+			Flow(
+				[
+					CreateDataBindingTool.CreateDataBindingToolName,
+					AddDataBindingRowTool.AddDataBindingRowToolName
+				],
+				"Use when the workflow explicitly needs a local binding artifact under the workspace."),
+			[
+				Flow(
+					[
+						SchemaSyncTool.ToolName
+					],
+					"Fallback to sync-schemas when lookup seeding can stay inside the current schema batch."),
+				Flow(
+					[
+						CreateDataBindingDbTool.CreateDataBindingDbToolName
+					],
+					"Fallback to create-data-binding-db when the desired outcome is a remote DB-first binding rather than a local artifact.")
+			],
+			[]);
+	}
+
+	private static ToolContractDefinition BuildAddDataBindingRow() {
+		return new ToolContractDefinition(
+			AddDataBindingRowTool.AddDataBindingRowToolName,
+			"Adds or replaces one row in an existing local package data binding. For workflow selection and verification discipline, call get-guidance with name `data-bindings`.",
+			new ToolInputSchemaContract(
+					[PackageNameFieldName, BindingNameFieldName, WorkspacePathFieldName, ValuesFieldName],
+					[
+						Field(PackageNameFieldName, StringType, PackageNameDescription),
+						Field(BindingNameFieldName, StringType, BindingNameDescription),
+						Field(WorkspacePathFieldName, StringType, WorkspacePathDescription),
+						Field(ValuesFieldName, StringType, "JSON object keyed by column name for the row to add or replace."),
+						Field("localizations", StringType, "Optional JSON object keyed by culture then column name.")
+					]),
+			CommandExecutionOutput(),
+			CommonErrorContract,
+			[
+				PackageNameParameterAlias(),
+				BindingNameParameterAlias(),
+				WorkspacePathParameterAlias()
+			],
+			[],
+			[
+				Example("Add one row to an existing local binding", new Dictionary<string, object?> {
+					[PackageNameFieldName] = ExamplePackageName,
+					[BindingNameFieldName] = ExampleTaskStatusSchemaName,
+					[WorkspacePathFieldName] = ExampleWorkspacePath,
+					[ValuesFieldName] = "{\"Name\":\"In Progress\"}"
+				})
+			],
+			Flow(
+				[
+					CreateDataBindingTool.CreateDataBindingToolName,
+					AddDataBindingRowTool.AddDataBindingRowToolName
+				],
+				"Local artifact flow: create the binding first, then add or replace rows."),
+			[],
+			[]);
+	}
+
+	private static ToolContractDefinition BuildRemoveDataBindingRow() {
+		return new ToolContractDefinition(
+			RemoveDataBindingRowTool.RemoveDataBindingRowToolName,
+			"Removes one row from an existing local package data binding by key value. For workflow selection and verification discipline, call get-guidance with name `data-bindings`.",
+			new ToolInputSchemaContract(
+				[PackageNameFieldName, BindingNameFieldName, WorkspacePathFieldName, KeyValueFieldName],
+				[
+						Field(PackageNameFieldName, StringType, PackageNameDescription),
+						Field(BindingNameFieldName, StringType, BindingNameDescription),
+						Field(WorkspacePathFieldName, StringType, WorkspacePathDescription),
+						Field(KeyValueFieldName, StringType, "Primary-key value of the row to remove.")
+					]),
+			CommandExecutionOutput(),
+			CommonErrorContract,
+			[
+				PackageNameParameterAlias(),
+				BindingNameParameterAlias(),
+				WorkspacePathParameterAlias(),
+				Alias(ParameterScope, KeyValueFieldName, "keyValue", RejectedStatus, $"Use '{KeyValueFieldName}' instead of 'keyValue'.")
+			],
+			[],
+			[
+				Example("Remove one row from a local binding", new Dictionary<string, object?> {
+					[PackageNameFieldName] = ExamplePackageName,
+					[BindingNameFieldName] = ExampleTaskStatusSchemaName,
+					[WorkspacePathFieldName] = ExampleWorkspacePath,
+					[KeyValueFieldName] = "00000000-0000-0000-0000-000000000001"
+				})
+			],
+			Flow([RemoveDataBindingRowTool.RemoveDataBindingRowToolName], "Standalone local binding maintenance."),
 			[],
 			[]);
 	}
@@ -2222,6 +2382,14 @@ internal static class ToolContractCatalog {
 		];
 	}
 
+	private static IReadOnlyList<ToolContractField> WorkspacePackageFields(params ToolContractField[] extraFields) {
+		return [
+			Field(PackageNameFieldName, StringType, "Target package name."),
+			Field(WorkspacePathFieldName, StringType, "Absolute local workspace path. Network-share paths are not supported."),
+			..extraFields
+		];
+	}
+
 	private static IReadOnlyList<ToolContractField> EnvironmentOrExplicitConnectionFields(params ToolContractField[] leadingFields) {
 		return [
 			..leadingFields,
@@ -2284,6 +2452,11 @@ internal static class ToolContractCatalog {
 	private static ToolContractAlias BindingNameParameterAlias() {
 		return Alias(ParameterScope, BindingNameFieldName, "bindingName", RejectedStatus,
 			$"Use '{BindingNameFieldName}' instead of 'bindingName'.");
+	}
+
+	private static ToolContractAlias WorkspacePathParameterAlias() {
+		return Alias(ParameterScope, WorkspacePathFieldName, "workspacePath", RejectedStatus,
+			$"Use '{WorkspacePathFieldName}' instead of 'workspacePath'.");
 	}
 
 	private static ToolContractAlias ReferenceSchemaNameParameterAlias() {
